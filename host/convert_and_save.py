@@ -1,6 +1,7 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
 """
 Native Messaging Host for LLM-to-Obsidian Chrome Extension.
+Launched via the compiled native_host binary (macOS blocks script execution from Chrome).
 """
 
 import json
@@ -9,8 +10,12 @@ import struct
 import subprocess
 import sys
 import traceback
+import warnings
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+
+# Suppress Python warnings (stderr is already redirected by the C wrapper)
+warnings.filterwarnings("ignore")
 
 # ── Paths ──
 HOST_DIR = Path(__file__).parent.resolve()
@@ -352,7 +357,7 @@ def main():
         try:
             send_message({"success": False, "error": str(e)})
         except Exception:
-            pass
+            flog(f"Failed to send error response: {traceback.format_exc()}")
 
 
 if __name__ == "__main__":

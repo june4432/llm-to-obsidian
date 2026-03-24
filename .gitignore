@@ -4,6 +4,7 @@ host/.env
 host/debug.log
 host/run_host.bat
 host/run_host.sh
+host/native_host
 host/com.llm_to_obsidian.host.json
 __pycache__/
 *.pyc

@@ -110,6 +110,42 @@ function requestContentFromTab(tabId) {
   });
 }
 
+// ── Native Messaging via connectNative (more robust than sendNativeMessage for MV3) ──
+function callNativeHost(payload, callback) {
+  log("info", "Connecting to native host...");
+  let responded = false;
+
+  try {
+    const port = chrome.runtime.connectNative(NATIVE_HOST_NAME);
+
+    port.onMessage.addListener((response) => {
+      if (responded) return;
+      responded = true;
+      log("info", "Native host response received");
+      port.disconnect();
+      callback(null, response);
+    });
+
+    port.onDisconnect.addListener(() => {
+      if (responded) return;
+      responded = true;
+      const err = chrome.runtime.lastError?.message || "Native host disconnected";
+      log("error", "Native host disconnected", err);
+      callback(err, null);
+    });
+
+    port.postMessage(payload);
+    log("info", "Message sent to native host", { action: payload.action });
+  } catch (e) {
+    if (!responded) {
+      responded = true;
+      const err = e.message || "Failed to connect to native host";
+      log("error", "Native host connection error", err);
+      callback(err, null);
+    }
+  }
+}
+
 // ── Message Handling ──
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "convertAndSave") {
@@ -127,15 +163,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     log("info", "Test connection requested");
     chrome.storage.local.get(["vaultPath"], (settings) => {
       const vaultPath = settings.vaultPath || DEFAULT_VAULT_PATH;
-      chrome.runtime.sendNativeMessage(
-        NATIVE_HOST_NAME,
+      callNativeHost(
         { action: "test", vault_path: vaultPath },
-        (response) => {
-          if (chrome.runtime.lastError) {
-            log("error", "Test failed", chrome.runtime.lastError.message);
-            sendResponse({ success: false, error: chrome.runtime.lastError.message });
+        (err, response) => {
+          if (err) {
+            sendResponse({ success: false, error: err });
           } else {
-            log("info", "Test OK", response);
             sendResponse({ success: true, response });
           }
         }
@@ -156,7 +189,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return false;
 });
 
-// ── Convert & Save (callback-based, no async/await) ──
+// ── Convert & Save ──
 function handleConvertAndSave(markdownContent) {
   if (!markdownContent) {
     updateState({ status: "error", error: "No markdown content from page" });
@@ -176,16 +209,14 @@ function handleConvertAndSave(markdownContent) {
     }
     log("info", "Calling native host", { contentLength: markdownContent.length, vaultPath });
 
-    chrome.runtime.sendNativeMessage(
-      NATIVE_HOST_NAME,
+    callNativeHost(
       {
         action: "convert_and_save",
         content: markdownContent,
         vault_path: vaultPath,
       },
-      (response) => {
-        if (chrome.runtime.lastError) {
-          const err = chrome.runtime.lastError.message;
+      (err, response) => {
+        if (err) {
           log("error", "Native host error", err);
           updateState({ status: "error", error: `Native host: ${err}` });
           notify("Save Failed", err, true);

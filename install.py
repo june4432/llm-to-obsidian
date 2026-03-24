@@ -3,7 +3,7 @@
 Install script for LLM-to-Obsidian Native Messaging Host.
 
 Registers the Native Messaging Host manifest so Chrome can find and
-launch the Python script.
+launch the host process.
 
 Usage:
     python install.py [--uninstall] [--extension-id EXTENSION_ID]
@@ -14,6 +14,7 @@ import json
 import os
 import platform
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -26,52 +27,93 @@ def get_python_path():
     return shutil.which("python3") or shutil.which("python") or sys.executable
 
 
+def get_host_dir():
+    """Get absolute path to the host directory."""
+    return (Path(__file__).parent / "host").resolve()
+
+
 def get_host_script_path():
     """Get absolute path to the host script."""
-    return str((Path(__file__).parent / "host" / HOST_SCRIPT).resolve())
+    return str(get_host_dir() / HOST_SCRIPT)
+
+
+def build_native_binary(host_dir):
+    """Compile the C wrapper binary for macOS.
+
+    macOS blocks Chrome from directly executing script files (.sh, .py).
+    A compiled Mach-O binary is required as the native messaging entry point.
+    """
+    source = host_dir / "native_host.c"
+    binary = host_dir / "native_host"
+
+    if not source.exists():
+        print(f"  ERROR: {source} not found")
+        return None
+
+    print("  Compiling native_host binary...")
+    result = subprocess.run(
+        ["cc", "-o", str(binary), str(source)],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        print(f"  ERROR: Compilation failed: {result.stderr}")
+        return None
+
+    binary.chmod(0o755)
+
+    # Ad-hoc codesign
+    subprocess.run(
+        ["codesign", "-s", "-", str(binary)],
+        capture_output=True, text=True,
+    )
+
+    print(f"  Built: {binary}")
+    return str(binary)
 
 
 def create_manifest(extension_id):
     """Create the Native Messaging Host manifest JSON."""
-    host_script = get_host_script_path()
     system = platform.system()
+    host_dir = get_host_dir()
 
     if system == "Windows":
-        # On Windows, use a batch wrapper
-        batch_path = str(
-            (Path(__file__).parent / "host" / "run_host.bat").resolve()
-        )
-        create_windows_batch(batch_path, host_script)
-        manifest = {
-            "name": HOST_NAME,
-            "description": "LLM-to-Obsidian: Convert and save LLM conversations to Obsidian",
-            "path": batch_path,
-            "type": "stdio",
-            "allowed_origins": [f"chrome-extension://{extension_id}/"],
-        }
+        # On Windows, use a batch wrapper (can't use shebang)
+        batch_path = str(host_dir / "run_host.bat")
+        create_windows_batch(batch_path, get_host_script_path())
+        entry_point = batch_path
+    elif system == "Darwin":
+        # macOS — must use a compiled binary (Gatekeeper blocks scripts)
+        entry_point = build_native_binary(host_dir)
+        if not entry_point:
+            print("  Falling back to Python script (may not work on macOS)")
+            entry_point = get_host_script_path()
     else:
-        # macOS / Linux — use a shell wrapper for reliable Python execution
-        shell_path = str(
-            (Path(__file__).parent / "host" / "run_host.sh").resolve()
-        )
-        create_unix_shell(shell_path, host_script)
-        manifest = {
-            "name": HOST_NAME,
-            "description": "LLM-to-Obsidian: Convert and save LLM conversations to Obsidian",
-            "path": shell_path,
-            "type": "stdio",
-            "allowed_origins": [f"chrome-extension://{extension_id}/"],
-        }
+        # Linux — shell wrapper works fine
+        shell_path = str(host_dir / "run_host.sh")
+        create_linux_shell(shell_path, get_host_script_path())
+        entry_point = shell_path
+
+    manifest = {
+        "name": HOST_NAME,
+        "description": "LLM-to-Obsidian: Convert and save LLM conversations to Obsidian",
+        "path": entry_point,
+        "type": "stdio",
+        "allowed_origins": [f"chrome-extension://{extension_id}/"],
+    }
 
     return manifest
 
 
-def create_unix_shell(shell_path, host_script):
-    """Create a shell wrapper for macOS/Linux."""
+def create_linux_shell(shell_path, host_script):
+    """Create a shell wrapper for Linux."""
     python_path = get_python_path()
+    host_dir = str(Path(host_script).parent.resolve())
     content = (
         "#!/bin/bash\n"
-        f'exec "{python_path}" "{host_script}" "$@"\n'
+        f'DIR="{host_dir}"\n'
+        'exec 2>>"$DIR/debug.log"\n'
+        'export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"\n'
+        f'exec "{python_path}" "$DIR/convert_and_save.py" "$@"\n'
     )
     Path(shell_path).write_text(content, encoding="utf-8")
     os.chmod(shell_path, 0o755)
@@ -91,11 +133,8 @@ def get_manifest_dir():
     system = platform.system()
 
     if system == "Windows":
-        # Windows uses registry, but we also write manifest to a known location
         return Path(__file__).parent / "host"
-
     elif system == "Darwin":
-        # macOS
         return (
             Path.home()
             / "Library"
@@ -104,9 +143,7 @@ def get_manifest_dir():
             / "Chrome"
             / "NativeMessagingHosts"
         )
-
     else:
-        # Linux
         return Path.home() / ".config" / "google-chrome" / "NativeMessagingHosts"
 
 
@@ -161,7 +198,6 @@ def install(extension_id):
     if platform.system() != "Windows":
         host_script = Path(get_host_script_path())
         host_script.chmod(host_script.stat().st_mode | 0o755)
-        print(f"  Made executable: {host_script}")
 
     # Windows: register in registry
     if platform.system() == "Windows":
@@ -186,12 +222,12 @@ def uninstall():
         manifest_path.unlink()
         print(f"  Manifest removed: {manifest_path}")
 
-    # Wrappers
-    for wrapper in ["run_host.bat", "run_host.sh"]:
+    # Wrappers & binary
+    for wrapper in ["run_host.bat", "run_host.sh", "native_host"]:
         wp = Path(__file__).parent / "host" / wrapper
         if wp.exists():
             wp.unlink()
-            print(f"  Wrapper removed: {wp}")
+            print(f"  Removed: {wp}")
 
     if platform.system() == "Windows":
         uninstall_windows_registry()
