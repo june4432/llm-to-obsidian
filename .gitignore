@@ -3,6 +3,7 @@ host/.env
 .claude/
 host/debug.log
 host/run_host.bat
+host/run_host.sh
 host/com.llm_to_obsidian.host.json
 __pycache__/
 *.pyc

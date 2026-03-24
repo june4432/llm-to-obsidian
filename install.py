@@ -50,16 +50,32 @@ def create_manifest(extension_id):
             "allowed_origins": [f"chrome-extension://{extension_id}/"],
         }
     else:
-        # macOS / Linux
+        # macOS / Linux — use a shell wrapper for reliable Python execution
+        shell_path = str(
+            (Path(__file__).parent / "host" / "run_host.sh").resolve()
+        )
+        create_unix_shell(shell_path, host_script)
         manifest = {
             "name": HOST_NAME,
             "description": "LLM-to-Obsidian: Convert and save LLM conversations to Obsidian",
-            "path": host_script,
+            "path": shell_path,
             "type": "stdio",
             "allowed_origins": [f"chrome-extension://{extension_id}/"],
         }
 
     return manifest
+
+
+def create_unix_shell(shell_path, host_script):
+    """Create a shell wrapper for macOS/Linux."""
+    python_path = get_python_path()
+    content = (
+        "#!/bin/bash\n"
+        f'exec "{python_path}" "{host_script}" "$@"\n'
+    )
+    Path(shell_path).write_text(content, encoding="utf-8")
+    os.chmod(shell_path, 0o755)
+    print(f"  Created shell wrapper: {shell_path}")
 
 
 def create_windows_batch(batch_path, host_script):
@@ -170,11 +186,12 @@ def uninstall():
         manifest_path.unlink()
         print(f"  Manifest removed: {manifest_path}")
 
-    # Windows batch wrapper
-    batch_path = Path(__file__).parent / "host" / "run_host.bat"
-    if batch_path.exists():
-        batch_path.unlink()
-        print(f"  Batch wrapper removed: {batch_path}")
+    # Wrappers
+    for wrapper in ["run_host.bat", "run_host.sh"]:
+        wp = Path(__file__).parent / "host" / wrapper
+        if wp.exists():
+            wp.unlink()
+            print(f"  Wrapper removed: {wp}")
 
     if platform.system() == "Windows":
         uninstall_windows_registry()
