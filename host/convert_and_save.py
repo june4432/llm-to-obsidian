@@ -79,12 +79,32 @@ def call_claude_api(api_key, markdown_content):
     current_time = get_kst_now()
 
     user_message = (
-        f"현재 시간: {current_time}\n\n"
-        f"아래 내용을 conversation-to-note 스킬 포맷으로 변환해줘:\n\n"
+        f"현재 시간(KST): {current_time}\n\n"
+        f"아래 원본 내용을 conversation-to-note 포맷의 Obsidian 노트로 변환해줘.\n\n"
+        f"중요한 규칙:\n"
+        f"- 출력은 순수 마크다운 텍스트만 반환할 것. ```markdown```, ```yaml``` 등 코드 펜스로 감싸지 말 것.\n"
+        f"- YAML 프론트매터(---)로 시작하고, 바로 본문이 이어져야 함.\n"
+        f"- 프론트매터의 created 필드에 위 현재 시간을 사용할 것.\n"
+        f"- 출력 예시:\n"
+        f"---\n"
+        f"created: {current_time}\n"
+        f"title: \"제목\"\n"
+        f"tags:\n"
+        f"  - type/insight\n"
+        f"  - topic/ai\n"
+        f"source: \"\"\n"
+        f"---\n"
+        f"\n"
+        f"# 제목\n"
+        f"\n"
+        f"> 한 줄 요약\n"
+        f"\n"
+        f"(이하 본문)\n\n"
+        f"--- 원본 내용 ---\n\n"
         f"{markdown_content}"
     )
 
-    flog(f"Calling Claude API (haiku)...")
+    flog("Calling Claude API (haiku)...")
     message = client.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=4096,
@@ -93,8 +113,29 @@ def call_claude_api(api_key, markdown_content):
     )
 
     result = message.content[0].text
+    result = strip_code_fences(result)
     flog(f"API call done, response length: {len(result)}")
     return result
+
+
+def strip_code_fences(text):
+    """Remove wrapping code fences if the entire response is wrapped."""
+    import re
+    stripped = text.strip()
+    # Remove ```markdown ... ``` or ```yaml ... ``` wrapping
+    m = re.match(r'^```(?:markdown|yaml|md)?\s*\n([\s\S]*?)\n```\s*$', stripped)
+    if m:
+        return m.group(1).strip()
+    # Remove leading ```markdown and trailing ``` even if not perfectly matched
+    if stripped.startswith('```'):
+        lines = stripped.split('\n')
+        # Remove first line (```markdown)
+        lines = lines[1:]
+        # Remove last line if it's just ```)
+        if lines and lines[-1].strip() == '```':
+            lines = lines[:-1]
+        return '\n'.join(lines).strip()
+    return text
 
 
 def extract_title(note_content):

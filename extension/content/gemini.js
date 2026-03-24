@@ -93,6 +93,7 @@
           score,
           title: title || `Block (${text.length} chars)`,
           length: text.length,
+          el,
         });
       }
     });
@@ -101,50 +102,57 @@
     return blocks;
   }
 
-  // ── Build combined list: match chips to blocks or standalone ──
+  // ── Build list: chips with nearby content, then standalone blocks ──
   function getAllMdItems() {
     const chips = findMdChips();
     const blocks = extractAllMarkdownBlocks();
-
+    const usedBlockIndices = new Set();
     const items = [];
 
-    // If we have matching chips and blocks, pair them
-    if (chips.length > 0 && blocks.length > 0) {
-      // Use chips as labels, blocks as content (in order)
-      for (let i = 0; i < Math.max(chips.length, blocks.length); i++) {
-        const chip = chips[i];
-        const block = blocks[i];
-        items.push({
-          fileName: chip?.fileName || block?.title || `item-${i + 1}`,
-          title: block?.title || chip?.fileName || `item-${i + 1}`,
-          content: block?.content || null,
-          score: block?.score || 0,
-          length: block?.content?.length || 0,
-        });
-      }
-    } else if (blocks.length > 0) {
-      // No chips, just blocks
-      blocks.forEach((b, i) => {
-        items.push({
-          fileName: `${b.title}.md`,
-          title: b.title,
-          content: b.content,
-          score: b.score,
-          length: b.length,
-        });
+    // For each chip, find the closest code block by DOM proximity
+    chips.forEach((chip) => {
+      let bestBlock = null;
+      let bestDist = Infinity;
+
+      blocks.forEach((block, blockIdx) => {
+        if (usedBlockIndices.has(blockIdx)) return;
+        // Compare DOM positions
+        const chipRect = chip.el.getBoundingClientRect();
+        const blockEl = block.el;
+        if (!blockEl) return;
+        const blockRect = blockEl.getBoundingClientRect();
+        // Distance: prefer blocks ABOVE the chip (code block comes before download chip)
+        const dist = Math.abs(chipRect.top - blockRect.bottom);
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestBlock = { ...block, idx: blockIdx };
+        }
       });
-    } else if (chips.length > 0) {
-      // Chips but no extractable blocks
-      chips.forEach((c) => {
-        items.push({
-          fileName: c.fileName,
-          title: c.fileName,
-          content: null,
-          score: 0,
-          length: 0,
-        });
+
+      items.push({
+        type: "chip",
+        fileName: chip.fileName,
+        title: chip.fileName,
+        content: bestBlock?.content || null,
+        score: bestBlock?.score || 0,
+        length: bestBlock?.content?.length || 0,
       });
-    }
+
+      if (bestBlock) usedBlockIndices.add(bestBlock.idx);
+    });
+
+    // Add remaining blocks that weren't matched to a chip
+    blocks.forEach((block, idx) => {
+      if (usedBlockIndices.has(idx)) return;
+      items.push({
+        type: "block",
+        fileName: `${block.title}.md`,
+        title: block.title,
+        content: block.content,
+        score: block.score,
+        length: block.length,
+      });
+    });
 
     return items;
   }
@@ -159,6 +167,7 @@
       // Don't send full content in scan (just metadata)
       sendResponse(items.map((it, i) => ({
         index: i,
+        type: it.type,
         fileName: it.fileName,
         title: it.title,
         length: it.length,

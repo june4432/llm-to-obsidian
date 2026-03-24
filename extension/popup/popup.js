@@ -51,15 +51,19 @@ function renderMdItems() {
   }
 
   emptyStateEl.style.display = "none";
-  mdListEl.innerHTML = mdItems.map((item, i) => `
+  mdListEl.innerHTML = mdItems.map((item, i) => {
+    const icon = item.type === "chip" ? "📎" : "📝";
+    const label = item.type === "chip" ? "file" : "code block";
+    const meta = item.hasContent ? `${label} · ${item.length} chars` : "No content";
+    return `
     <label class="md-item" data-index="${i}" id="md-item-${i}">
-      <input type="checkbox" checked data-index="${i}">
+      <input type="checkbox" ${item.hasContent ? "checked" : "disabled"} data-index="${i}">
       <div class="md-item-info">
-        <div class="md-item-name" title="${item.fileName}">${item.fileName}</div>
-        <div class="md-item-meta">${item.hasContent ? `${item.length} chars` : "No content"}</div>
+        <div class="md-item-name" title="${item.fileName}">${icon} ${item.fileName}</div>
+        <div class="md-item-meta">${meta}</div>
       </div>
-    </label>
-  `).join("");
+    </label>`;
+  }).join("");
 
   updateSaveBtn();
 }
