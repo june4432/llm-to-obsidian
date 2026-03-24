@@ -245,6 +245,67 @@ testBtn.addEventListener("click", () => {
   });
 });
 
+// ── Request MD ──
+const requestMdBtn = document.getElementById("requestMdBtn");
+const MD_REQUEST_PROMPT =
+  "우리가 나눈 대화의 핵심 내용을 마크다운(.md) 형식으로 정리해줘.\n\n" +
+  "조건:\n" +
+  "- 마크다운 제목(# ), 소제목(## ), 목록(- ) 등 마크다운 문법을 사용해서 구조화할 것\n" +
+  "- 코드블록(```)으로 감싸서 보여줄 것\n" +
+  "- 대화 전체를 옮기지 말고, 핵심 인사이트 위주로 정리할 것";
+
+requestMdBtn.addEventListener("click", () => {
+  requestMdBtn.disabled = true;
+  requestMdBtn.textContent = "Sending...";
+
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    if (!tabs[0]) {
+      requestMdBtn.textContent = "Request MD";
+      requestMdBtn.disabled = false;
+      return;
+    }
+
+    const tabId = tabs[0].id;
+
+    function doInject() {
+      chrome.tabs.sendMessage(tabId, { action: "injectPrompt", prompt: MD_REQUEST_PROMPT }, (response) => {
+        if (chrome.runtime.lastError) {
+          // Inject content script and retry
+          chrome.scripting.executeScript(
+            { target: { tabId }, files: ["content/gemini.js"] },
+            () => {
+              if (chrome.runtime.lastError) {
+                requestMdBtn.textContent = "Failed";
+                setTimeout(() => { requestMdBtn.textContent = "Request MD"; requestMdBtn.disabled = false; }, 2000);
+                return;
+              }
+              setTimeout(() => {
+                chrome.tabs.sendMessage(tabId, { action: "injectPrompt", prompt: MD_REQUEST_PROMPT }, handleResult);
+              }, 500);
+            }
+          );
+          return;
+        }
+        handleResult(response);
+      });
+    }
+
+    function handleResult(response) {
+      if (response?.success) {
+        requestMdBtn.textContent = "Sent!";
+        // Close popup so user can see Gemini responding
+        setTimeout(() => window.close(), 800);
+      } else {
+        requestMdBtn.textContent = "Failed";
+        showError(response?.error || "Could not inject prompt");
+      }
+      setTimeout(() => { requestMdBtn.textContent = "Request MD"; requestMdBtn.disabled = false; }, 2000);
+    }
+
+    doInject();
+  });
+});
+
 // ── Settings ──
 const settingsToggle = document.getElementById("settingsToggle");
 const settingsPanel = document.getElementById("settingsPanel");

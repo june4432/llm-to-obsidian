@@ -157,6 +157,86 @@
     return items;
   }
 
+  // ── Inject prompt into Gemini input ──
+  function injectPromptToInput(prompt) {
+    // Try multiple selectors for Gemini's input field
+    const selectors = [
+      'rich-textarea .ql-editor',
+      'rich-textarea p',
+      'textarea[aria-label]',
+      '.text-input-field textarea',
+      '[contenteditable="true"]',
+    ];
+
+    let inputEl = null;
+    for (const sel of selectors) {
+      inputEl = document.querySelector(sel);
+      if (inputEl) break;
+    }
+
+    if (!inputEl) {
+      console.warn(TAG, "Could not find input field");
+      return { success: false, error: "Input field not found" };
+    }
+
+    console.log(TAG, "Found input:", inputEl.tagName, inputEl.className);
+
+    try {
+      if (inputEl.tagName === "TEXTAREA") {
+        inputEl.value = prompt;
+        inputEl.dispatchEvent(new Event("input", { bubbles: true }));
+      } else {
+        // contenteditable or <p> inside rich-textarea
+        inputEl.textContent = prompt;
+        inputEl.dispatchEvent(new InputEvent("input", { bubbles: true, data: prompt }));
+      }
+      inputEl.focus();
+
+      // Auto-submit after brief delay
+      setTimeout(() => {
+        // Try finding send button
+        const sendSelectors = [
+          'button.send-button',
+          'button[aria-label="Send message"]',
+          'button[aria-label="메시지 보내기"]',
+          '.send-button-container button',
+          'button[mat-icon-button][aria-label]',
+        ];
+
+        let sendBtn = null;
+        for (const sel of sendSelectors) {
+          sendBtn = document.querySelector(sel);
+          if (sendBtn && !sendBtn.disabled) break;
+          sendBtn = null;
+        }
+
+        // Fallback: find button with send icon near input
+        if (!sendBtn) {
+          document.querySelectorAll("button").forEach((btn) => {
+            const label = (btn.getAttribute("aria-label") || "").toLowerCase();
+            if (label.includes("send") || label.includes("보내") || label.includes("submit")) {
+              if (!btn.disabled) sendBtn = btn;
+            }
+          });
+        }
+
+        if (sendBtn) {
+          console.log(TAG, "Clicking send button");
+          sendBtn.click();
+        } else {
+          // Try Enter key as fallback
+          console.log(TAG, "No send button found, trying Enter key");
+          inputEl.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }));
+        }
+      }, 500);
+
+      return { success: true };
+    } catch (e) {
+      console.error(TAG, "Inject failed:", e);
+      return { success: false, error: e.message };
+    }
+  }
+
   // ── Message listener ──
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log(TAG, "Message:", message.action);
@@ -191,6 +271,14 @@
       const item = items[idx];
       console.log(TAG, `Item ${idx}:`, item?.title, item?.length);
       sendResponse({ content: item?.content || null, fileName: item?.fileName });
+      return true;
+    }
+
+    if (message.action === "injectPrompt") {
+      const prompt = message.prompt || "";
+      console.log(TAG, "Injecting prompt:", prompt.slice(0, 50));
+      const result = injectPromptToInput(prompt);
+      sendResponse(result);
       return true;
     }
 
