@@ -1,0 +1,22 @@
+# Environment
+host/.env
+.claude/
+host/debug.log
+host/run_host.bat
+host/com.llm_to_obsidian.host.json
+__pycache__/
+*.pyc
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node (if any)
+node_modules/
+
+# Extracted temp
+_skill_temp/

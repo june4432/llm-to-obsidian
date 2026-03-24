@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      width: 360px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 13px;
+      color: #e0e0e0;
+      background: #1e1e2e;
+      padding: 16px;
+    }
+    h1 { font-size: 15px; font-weight: 600; margin-bottom: 12px; color: #cdd6f4; }
+
+    /* Status */
+    .status-bar {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 12px; border-radius: 8px; margin-bottom: 12px; background: #313244;
+    }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .status-dot.idle { background: #6c7086; }
+    .status-dot.scanning { background: #89b4fa; animation: pulse 1s infinite; }
+    .status-dot.processing { background: #f9e2af; animation: pulse 1s infinite; }
+    .status-dot.done { background: #a6e3a1; }
+    .status-dot.error { background: #f38ba8; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    .status-text { flex: 1; }
+
+    /* MD item list */
+    .md-list { margin-bottom: 12px; }
+    .md-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 12px; background: #313244; border-radius: 6px; margin-bottom: 4px;
+      cursor: pointer; transition: background 0.15s;
+    }
+    .md-item:hover { background: #45475a; }
+    .md-item input[type="checkbox"] { accent-color: #cba6f7; cursor: pointer; }
+    .md-item-info { flex: 1; min-width: 0; }
+    .md-item-name { font-weight: 500; color: #cdd6f4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .md-item-meta { font-size: 10px; color: #6c7086; }
+    .md-item.saving { opacity: 0.5; }
+    .md-item.saved .md-item-name { color: #a6e3a1; }
+    .md-item.failed .md-item-name { color: #f38ba8; }
+
+    .empty-state { padding: 20px; text-align: center; color: #6c7086; font-size: 12px; }
+
+    /* Buttons */
+    .btn {
+      width: 100%; padding: 10px; border: none; border-radius: 6px;
+      font-weight: 600; font-size: 13px; cursor: pointer;
+    }
+    .btn-primary { background: #cba6f7; color: #1e1e2e; }
+    .btn-primary:hover { background: #b4befe; }
+    .btn-primary:disabled { background: #45475a; color: #6c7086; cursor: not-allowed; }
+    .btn-row { display: flex; gap: 8px; margin-top: 8px; }
+    .btn-sm { flex: 1; padding: 6px; font-size: 11px; border: none; border-radius: 6px; cursor: pointer; }
+    .btn-secondary { background: #45475a; color: #cdd6f4; }
+    .btn-secondary:hover { background: #585b70; }
+
+    /* Error */
+    .error-msg {
+      padding: 8px 12px; background: #45293b; border-radius: 8px;
+      color: #f38ba8; font-size: 12px; margin-bottom: 12px; word-break: break-word;
+    }
+
+    /* Log */
+    .log-section { border-top: 1px solid #313244; margin-top: 12px; padding-top: 12px; }
+    .log-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .log-header h2 { font-size: 12px; color: #6c7086; font-weight: 600; }
+    .log-toggle { background: none; border: none; color: #6c7086; font-size: 11px; cursor: pointer; }
+    .log-toggle:hover { color: #cdd6f4; }
+    .log-container {
+      max-height: 150px; overflow-y: auto; background: #11111b; border-radius: 6px; padding: 8px;
+      font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 10px; line-height: 1.5;
+    }
+    .log-container::-webkit-scrollbar { width: 4px; }
+    .log-container::-webkit-scrollbar-thumb { background: #45475a; border-radius: 2px; }
+    .log-entry { margin-bottom: 2px; }
+    .log-time { color: #585b70; }
+    .log-info { color: #94e2d5; }
+    .log-error { color: #f38ba8; }
+    .log-data { color: #6c7086; }
+  </style>
+</head>
+<body>
+  <h1>LLM to Obsidian</h1>
+
+  <div class="status-bar">
+    <div id="statusDot" class="status-dot idle"></div>
+    <span id="statusText">Idle</span>
+  </div>
+
+  <div id="errorMsg" class="error-msg" style="display:none;"></div>
+
+  <div id="mdList" class="md-list">
+    <div class="empty-state" id="emptyState">Loading...</div>
+  </div>
+
+  <button class="btn btn-primary" id="saveBtn" disabled>Save Selected</button>
+
+  <div class="btn-row">
+    <button class="btn-sm btn-secondary" id="rescanBtn">Rescan Page</button>
+    <button class="btn-sm btn-secondary" id="testBtn">Test Connection</button>
+    <button class="btn-sm btn-secondary" id="settingsToggle">Settings</button>
+  </div>
+
+  <div id="settingsPanel" style="display:none; margin-top:8px;">
+    <label style="font-size:11px;color:#6c7086;margin-bottom:4px;display:block;">Obsidian Vault Path</label>
+    <input type="text" id="vaultPath" style="width:100%;padding:6px 10px;border:1px solid #45475a;border-radius:6px;background:#313244;color:#cdd6f4;font-size:12px;outline:none;">
+    <button class="btn-sm btn-secondary" id="saveSettingsBtn" style="width:100%;margin-top:6px;">Save</button>
+  </div>
+
+  <div class="log-section">
+    <div class="log-header">
+      <h2>Logs</h2>
+      <button class="log-toggle" id="refreshLogs">Refresh</button>
+    </div>
+    <div class="log-container" id="logContainer">
+      <div class="log-entry log-info">Waiting...</div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
